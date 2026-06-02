@@ -176,4 +176,51 @@ class GoogleDriveService {
       rethrow;
     }
   }
+
+  /// Downloads raw binary data of a file from Google Drive
+  Future<Uint8List> downloadFileBytes(String fileId) async {
+    try {
+      final response = await _driveApi.files.get(
+        fileId,
+        downloadOptions: drive.DownloadOptions.fullMedia,
+      );
+
+      if (response is drive.Media) {
+        final List<int> bytes = await response.stream.fold<List<int>>(
+          [],
+          (prev, elem) => prev..addAll(elem),
+        );
+        return Uint8List.fromList(bytes);
+      }
+      throw Exception('Failed to download file: Response is not Media');
+    } catch (e) {
+      debugPrint('Error downloading file bytes from Google Drive: $e');
+      rethrow;
+    }
+  }
+
+  /// Uploads a binary media file to Google Drive
+  Future<drive.File> uploadMedia(String name, Uint8List bytes, String mimeType, {String? parentFolderId}) async {
+    try {
+      final actualParentId = parentFolderId ?? await _getOrCreateAppFolder();
+      final driveFile = drive.File()
+        ..name = name
+        ..parents = [actualParentId]
+        ..mimeType = mimeType;
+
+      final media = drive.Media(
+        Stream.value(bytes),
+        bytes.length,
+      );
+
+      final response = await _driveApi.files.create(
+        driveFile,
+        uploadMedia: media,
+      );
+      return response;
+    } catch (e) {
+      debugPrint('Error uploading media to Google Drive: $e');
+      rethrow;
+    }
+  }
 }

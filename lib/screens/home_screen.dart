@@ -7,6 +7,8 @@ import 'package:markdown/markdown.dart' as md;
 import '../providers/auth_provider.dart';
 import '../providers/drive_provider.dart';
 import '../widgets/youtube_syntax.dart';
+import '../widgets/media_syntax.dart';
+import '../utils/file_picker.dart';
 
 
 class HomeScreen extends ConsumerStatefulWidget {
@@ -612,16 +614,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     if (isOffline) return const SizedBox.shrink();
 
     final List<Map<String, dynamic>> items = [
-      {'icon': Icons.title, 'tooltip': 'Heading 1', 'prefix': '# '},
-      {'icon': Icons.text_fields, 'tooltip': 'Heading 2', 'prefix': '## '},
-      {'icon': Icons.format_bold, 'tooltip': 'Bold', 'prefix': '**', 'suffix': '**'},
-      {'icon': Icons.format_italic, 'tooltip': 'Italic', 'prefix': '*', 'suffix': '*'},
-      {'icon': Icons.format_quote, 'tooltip': 'Blockquote', 'prefix': '> '},
-      {'icon': Icons.code, 'tooltip': 'Code Block', 'prefix': '```\n', 'suffix': '\n```'},
-      {'icon': Icons.link, 'tooltip': 'Link', 'prefix': '[', 'suffix': '](url)'},
-      {'icon': Icons.play_circle_outline, 'tooltip': 'YouTube Video', 'prefix': '@[youtube](', 'suffix': ')'},
-      {'icon': Icons.format_list_bulleted, 'tooltip': 'Bullet List', 'prefix': '- '},
-      {'icon': Icons.format_list_numbered, 'tooltip': 'Numbered List', 'prefix': '1. '},
+      {'icon': Icons.title, 'tooltip': 'Heading 1', 'action': () => _insertMarkdown('# ')},
+      {'icon': Icons.text_fields, 'tooltip': 'Heading 2', 'action': () => _insertMarkdown('## ')},
+      {'icon': Icons.format_bold, 'tooltip': 'Bold', 'action': () => _insertMarkdown('**', suffix: '**')},
+      {'icon': Icons.format_italic, 'tooltip': 'Italic', 'action': () => _insertMarkdown('*', suffix: '*')},
+      {'icon': Icons.format_quote, 'tooltip': 'Blockquote', 'action': () => _insertMarkdown('> ')},
+      {'icon': Icons.code, 'tooltip': 'Code Block', 'action': () => _insertMarkdown('```\n', suffix: '\n```')},
+      {'icon': Icons.link, 'tooltip': 'Link', 'action': () => _insertMarkdown('[', suffix: '](url)')},
+      {'icon': Icons.image, 'tooltip': 'Web Image', 'action': () => _insertMarkdown('![alt text](', suffix: ')')},
+      {'icon': Icons.video_library, 'tooltip': 'Web Video', 'action': () => _insertMarkdown('@[video](', suffix: ')')},
+      {'icon': Icons.play_circle_outline, 'tooltip': 'YouTube Video', 'action': () => _insertMarkdown('@[youtube](', suffix: ')')},
+      {'icon': Icons.add_to_photos, 'tooltip': 'Drive Media', 'action': () => _showDriveMediaPicker(context)},
+      {'icon': Icons.format_list_bulleted, 'tooltip': 'Bullet List', 'action': () => _insertMarkdown('- ')},
+      {'icon': Icons.format_list_numbered, 'tooltip': 'Numbered List', 'action': () => _insertMarkdown('1. ')},
     ];
 
     return Container(
@@ -639,12 +644,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             return IconButton(
               icon: Icon(item['icon'] as IconData, size: 18, color: const Color(0xFF94A3B8)),
               tooltip: item['tooltip'] as String,
-              onPressed: () {
-                _insertMarkdown(
-                  item['prefix'] as String,
-                  suffix: (item['suffix'] ?? '') as String,
-                );
-              },
+              onPressed: item['action'] as VoidCallback,
             );
           }).toList(),
         ),
@@ -1000,10 +1000,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             [
               ...md.ExtensionSet.gitHubFlavored.inlineSyntaxes,
               YoutubeSyntax(),
+              WebVideoSyntax(),
+              DriveVideoSyntax(),
             ],
           ),
           builders: {
             'youtube': YoutubeElementBuilder(),
+            'video': VideoElementBuilder(ref),
+            'img': DriveImageBuilder(ref),
           },
         ),
       ),
@@ -1819,6 +1823,263 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  void _showDriveMediaPicker(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return _DriveMediaPickerDialog(
+          selectedFolderId: _selectedFolderId,
+          onInsert: (String tag) {
+            _insertMarkdown(tag);
+          },
+        );
+      },
+    );
+  }
+}
+
+class _DriveMediaPickerDialog extends ConsumerStatefulWidget {
+  final String? selectedFolderId;
+  final Function(String tag) onInsert;
+
+  const _DriveMediaPickerDialog({
+    required this.selectedFolderId,
+    required this.onInsert,
+  });
+
+  @override
+  ConsumerState<_DriveMediaPickerDialog> createState() => _DriveMediaPickerDialogState();
+}
+
+class _DriveMediaPickerDialogState extends ConsumerState<_DriveMediaPickerDialog> {
+  bool _isUploading = false;
+  String? _uploadStatus;
+
+  String _formatSize(String? sizeStr) {
+    if (sizeStr == null) return 'Unknown size';
+    final bytes = int.tryParse(sizeStr);
+    if (bytes == null) return 'Unknown size';
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+
+  Future<void> _handleUpload() async {
+    try {
+      final picked = await pickMediaFile();
+      if (picked == null) return;
+
+      setState(() {
+        _isUploading = true;
+        _uploadStatus = 'Uploading ${picked.name}...';
+      });
+
+      final uploadedFile = await ref.read(driveProvider.notifier).uploadMedia(
+        picked.name,
+        picked.bytes,
+        picked.mimeType,
+        parentFolderId: widget.selectedFolderId,
+      );
+
+      if (uploadedFile != null && uploadedFile.id != null) {
+        final fileId = uploadedFile.id!;
+        final name = uploadedFile.name ?? 'media';
+        final isVideo = picked.mimeType.startsWith('video/');
+
+        final tag = isVideo
+            ? '@[drive_video](drive://$fileId)'
+            : '![$name](drive://$fileId)';
+
+        widget.onInsert(tag);
+        if (mounted) {
+          Navigator.of(context).pop();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              backgroundColor: const Color(0xFF10B981),
+              content: Text('Successfully uploaded and inserted $name'),
+            ),
+          );
+        }
+      } else {
+        throw Exception('File upload failed: No ID returned');
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isUploading = false;
+          _uploadStatus = null;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: const Color(0xFFEF4444),
+            content: Text('Upload failed: $e'),
+          ),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final driveState = ref.watch(driveProvider);
+
+    // Filter files to only show images and videos
+    final mediaFiles = driveState.files.where((file) {
+      final mime = file.mimeType ?? '';
+      return mime.startsWith('image/') || mime.startsWith('video/');
+    }).toList();
+
+    return AlertDialog(
+      backgroundColor: const Color(0xFF1E293B),
+      title: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            'Select Google Drive Media',
+            style: GoogleFonts.outfit(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 18,
+            ),
+          ),
+          if (!_isUploading)
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF6366F1),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              icon: const Icon(Icons.upload, size: 16, color: Colors.white),
+              label: Text(
+                'Upload',
+                style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.white),
+              ),
+              onPressed: _handleUpload,
+            ),
+        ],
+      ),
+      content: SizedBox(
+        width: 480,
+        height: 360,
+        child: _isUploading
+            ? Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const CircularProgressIndicator(
+                      valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF6366F1)),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      _uploadStatus ?? 'Uploading media...',
+                      style: GoogleFonts.inter(color: const Color(0xFF94A3B8)),
+                    ),
+                  ],
+                ),
+              )
+            : mediaFiles.isEmpty
+                ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(
+                          Icons.perm_media_outlined,
+                          size: 48,
+                          color: Color(0xFF475569),
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          'No media files found in Drive',
+                          style: GoogleFonts.outfit(
+                            color: const Color(0xFF94A3B8),
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Upload an image or video to get started',
+                          style: GoogleFonts.inter(
+                            color: const Color(0xFF475569),
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                : ListView.separated(
+                    itemCount: mediaFiles.length,
+                    separatorBuilder: (context, index) => const Divider(color: Color(0x1F94A3B8)),
+                    itemBuilder: (context, index) {
+                      final file = mediaFiles[index];
+                      final isVideo = file.mimeType?.startsWith('video/') ?? false;
+                      final isImage = file.mimeType?.startsWith('image/') ?? false;
+
+                      IconData fileIcon = Icons.insert_drive_file;
+                      Color iconColor = const Color(0xFF94A3B8);
+                      if (isVideo) {
+                        fileIcon = Icons.video_library;
+                        iconColor = const Color(0xFF3B82F6);
+                      } else if (isImage) {
+                        fileIcon = Icons.image;
+                        iconColor = const Color(0xFF10B981);
+                      }
+
+                      return ListTile(
+                        leading: Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: iconColor.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Icon(fileIcon, color: iconColor, size: 20),
+                        ),
+                        title: Text(
+                          file.name ?? 'Unnamed file',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.inter(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        subtitle: Text(
+                          '${_formatSize(file.size)} • ${file.mimeType}',
+                          style: GoogleFonts.inter(
+                            color: const Color(0xFF64748B),
+                            fontSize: 11,
+                          ),
+                        ),
+                        trailing: const Icon(
+                          Icons.chevron_right,
+                          color: Color(0xFF475569),
+                          size: 16,
+                        ),
+                        onTap: () {
+                          final fileId = file.id!;
+                          final name = file.name ?? 'media';
+                          final tag = isVideo
+                              ? '@[drive_video](drive://$fileId)'
+                              : '![$name](drive://$fileId)';
+
+                          widget.onInsert(tag);
+                          Navigator.of(context).pop();
+                        },
+                      );
+                    },
+                  ),
+      ),
+      actions: [
+        TextButton(
+          child: const Text('Cancel', style: TextStyle(color: Color(0xFF94A3B8))),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+      ],
     );
   }
 }

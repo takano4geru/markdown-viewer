@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:googleapis/drive/v3.dart' as drive;
 import '../services/google_drive_service.dart';
@@ -7,6 +8,7 @@ import 'auth_provider.dart';
 class DriveState {
   final List<drive.File> files;
   final Map<String, String> fileContents; // fileId -> content
+  final Map<String, Uint8List> mediaCache; // fileId -> raw bytes
   final bool isLoading;
   final String? operationType; // 'list', 'create', 'read', 'update', 'delete'
   final String? activeFileId; // The file ID currently being processed (read, update, delete)
@@ -16,6 +18,7 @@ class DriveState {
   DriveState({
     this.files = const [],
     this.fileContents = const {},
+    this.mediaCache = const {},
     this.isLoading = false,
     this.operationType,
     this.activeFileId,
@@ -26,6 +29,7 @@ class DriveState {
   DriveState copyWith({
     List<drive.File>? files,
     Map<String, String>? fileContents,
+    Map<String, Uint8List>? mediaCache,
     bool? isLoading,
     String? operationType,
     String? activeFileId,
@@ -36,6 +40,7 @@ class DriveState {
     return DriveState(
       files: files ?? this.files,
       fileContents: fileContents ?? this.fileContents,
+      mediaCache: mediaCache ?? this.mediaCache,
       isLoading: isLoading ?? this.isLoading,
       operationType: clearActiveFields ? null : (operationType ?? this.operationType),
       activeFileId: clearActiveFields ? null : (activeFileId ?? this.activeFileId),
@@ -354,6 +359,69 @@ class DriveNotifier extends StateNotifier<DriveState> {
         errorMessage: _isNetworkError(e)
             ? 'Cannot delete while offline. Check your network connection.'
             : 'Failed to delete file: $e',
+        clearActiveFields: true,
+      );
+      rethrow;
+    }
+  }
+
+  Future<void> downloadMedia(String fileId) async {
+    if (_driveService == null) return;
+    
+    if (state.mediaCache.containsKey(fileId)) return;
+    
+    state = state.copyWith(
+      isLoading: true,
+      operationType: 'read',
+      activeFileId: fileId,
+      errorMessage: null,
+    );
+
+    try {
+      final bytes = await _executeWithRetry((service) => service.downloadFileBytes(fileId));
+      
+      final newMediaCache = Map<String, Uint8List>.from(state.mediaCache);
+      newMediaCache[fileId] = bytes;
+
+      state = state.copyWith(
+        mediaCache: newMediaCache,
+        isLoading: false,
+        clearActiveFields: true,
+      );
+    } catch (e) {
+      state = state.copyWith(
+        isLoading: false,
+        errorMessage: _isNetworkError(e)
+            ? 'Cannot download media while offline.'
+            : 'Failed to download media: $e',
+        clearActiveFields: true,
+      );
+    }
+  }
+
+  Future<drive.File?> uploadMedia(String name, Uint8List bytes, String mimeType, {String? parentFolderId}) async {
+    if (_driveService == null) return null;
+    state = state.copyWith(isLoading: true, operationType: 'create', errorMessage: null);
+
+    try {
+      final newFile = await _executeWithRetry(
+        (service) => service.uploadMedia(name, bytes, mimeType, parentFolderId: parentFolderId)
+      );
+
+      if (newFile.id != null) {
+        final newMediaCache = Map<String, Uint8List>.from(state.mediaCache);
+        newMediaCache[newFile.id!] = bytes;
+        state = state.copyWith(mediaCache: newMediaCache);
+      }
+
+      await loadFiles();
+      return newFile;
+    } catch (e) {
+      state = state.copyWith(
+        isLoading: false,
+        errorMessage: _isNetworkError(e)
+            ? 'Cannot upload media while offline.'
+            : 'Failed to upload media: $e',
         clearActiveFields: true,
       );
       rethrow;
