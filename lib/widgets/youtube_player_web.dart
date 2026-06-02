@@ -15,25 +15,29 @@ Widget buildYoutubePlayer(BuildContext context, String videoId, String videoUrl)
       ..allowFullscreen = true,
   );
 
-  return Container(
-    margin: const EdgeInsets.symmetric(vertical: 12),
-    decoration: BoxDecoration(
-      color: Colors.black,
-      borderRadius: BorderRadius.circular(16),
-      border: Border.all(color: const Color(0x3394A3B8), width: 1),
-      boxShadow: [
-        BoxShadow(
-          color: Colors.black.withValues(alpha: 0.3),
-          blurRadius: 10,
-          offset: const Offset(0, 5),
+  return Align(
+    alignment: Alignment.center,
+    child: Container(
+      margin: const EdgeInsets.symmetric(vertical: 12),
+      constraints: const BoxConstraints(maxWidth: 640),
+      decoration: BoxDecoration(
+        color: Colors.black,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0x3394A3B8), width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.3),
+            blurRadius: 10,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(15),
+        child: AspectRatio(
+          aspectRatio: 16 / 9,
+          child: HtmlElementView(viewType: viewType),
         ),
-      ],
-    ),
-    child: ClipRRect(
-      borderRadius: BorderRadius.circular(15),
-      child: AspectRatio(
-        aspectRatio: 16 / 9,
-        child: HtmlElementView(viewType: viewType),
       ),
     ),
   );
