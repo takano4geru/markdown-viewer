@@ -11,6 +11,7 @@ class DriveState {
   final String? operationType; // 'list', 'create', 'read', 'update', 'delete'
   final String? activeFileId; // The file ID currently being processed (read, update, delete)
   final String? errorMessage;
+  final String? rootFolderId;
 
   DriveState({
     this.files = const [],
@@ -19,6 +20,7 @@ class DriveState {
     this.operationType,
     this.activeFileId,
     this.errorMessage,
+    this.rootFolderId,
   });
 
   DriveState copyWith({
@@ -28,6 +30,7 @@ class DriveState {
     String? operationType,
     String? activeFileId,
     String? errorMessage,
+    String? rootFolderId,
     bool clearActiveFields = false,
   }) {
     return DriveState(
@@ -37,6 +40,7 @@ class DriveState {
       operationType: clearActiveFields ? null : (operationType ?? this.operationType),
       activeFileId: clearActiveFields ? null : (activeFileId ?? this.activeFileId),
       errorMessage: errorMessage ?? this.errorMessage,
+      rootFolderId: rootFolderId ?? this.rootFolderId,
     );
   }
 }
@@ -65,9 +69,22 @@ class DriveNotifier extends StateNotifier<DriveState> {
     state = state.copyWith(isLoading: true);
     final cachedFiles = await _cacheService.loadFiles();
     final cachedContents = await _cacheService.loadContents();
+    
+    // Find cached root folder ID offline
+    String? rootFolderId;
+    try {
+      final rootFolder = cachedFiles.firstWhere(
+        (f) => f.name == 'CloudSync Docs' && f.mimeType == 'application/vnd.google-apps.folder',
+      );
+      rootFolderId = rootFolder.id;
+    } catch (_) {
+      // Not cached/found yet
+    }
+
     state = DriveState(
       files: cachedFiles,
       fileContents: cachedContents,
+      rootFolderId: rootFolderId,
       isLoading: false,
     );
 
@@ -134,6 +151,7 @@ class DriveNotifier extends StateNotifier<DriveState> {
     state = state.copyWith(isLoading: true, operationType: 'list', errorMessage: null);
 
     try {
+      final rootFolderId = await _executeWithRetry((service) => service.getRootFolderId());
       final files = await _executeWithRetry((service) => service.listFiles());
       
       // Sort files by modifiedTime descending
@@ -146,7 +164,12 @@ class DriveNotifier extends StateNotifier<DriveState> {
       // Save files metadata to local cache
       await _cacheService.saveFiles(files);
 
-      state = state.copyWith(files: files, isLoading: false, clearActiveFields: true);
+      state = state.copyWith(
+        files: files,
+        rootFolderId: rootFolderId,
+        isLoading: false,
+        clearActiveFields: true,
+      );
     } catch (e) {
       final isOffline = _isNetworkError(e);
       state = state.copyWith(
@@ -159,12 +182,14 @@ class DriveNotifier extends StateNotifier<DriveState> {
     }
   }
 
-  Future<void> createFile(String title, String content) async {
+  Future<void> createFile(String title, String content, {String? parentFolderId}) async {
     if (_driveService == null) return;
     state = state.copyWith(isLoading: true, operationType: 'create', errorMessage: null);
 
     try {
-      final newFile = await _executeWithRetry((service) => service.createFile(title, content));
+      final newFile = await _executeWithRetry(
+        (service) => service.createFile(title, content, parentFolderId: parentFolderId)
+      );
       
       // Update local contents cache
       final newContents = Map<String, String>.from(state.fileContents);
@@ -182,6 +207,27 @@ class DriveNotifier extends StateNotifier<DriveState> {
         errorMessage: _isNetworkError(e)
             ? 'Cannot save while offline. Check your network connection.'
             : 'Failed to create file: $e',
+        clearActiveFields: true,
+      );
+      rethrow;
+    }
+  }
+
+  Future<void> createFolder(String name, {String? parentFolderId}) async {
+    if (_driveService == null) return;
+    state = state.copyWith(isLoading: true, operationType: 'create', errorMessage: null);
+
+    try {
+      await _executeWithRetry(
+        (service) => service.createFolder(name, parentFolderId: parentFolderId)
+      );
+      await loadFiles();
+    } catch (e) {
+      state = state.copyWith(
+        isLoading: false,
+        errorMessage: _isNetworkError(e)
+            ? 'Cannot create folder while offline.'
+            : 'Failed to create folder: $e',
         clearActiveFields: true,
       );
       rethrow;
@@ -249,6 +295,32 @@ class DriveNotifier extends StateNotifier<DriveState> {
         errorMessage: _isNetworkError(e)
             ? 'Cannot update while offline. Check your network connection.'
             : 'Failed to update file: $e',
+        clearActiveFields: true,
+      );
+      rethrow;
+    }
+  }
+
+  Future<void> moveFile(String fileId, String newParentId, {String? oldParentId}) async {
+    if (_driveService == null) return;
+    state = state.copyWith(
+      isLoading: true,
+      operationType: 'update',
+      activeFileId: fileId,
+      errorMessage: null,
+    );
+
+    try {
+      await _executeWithRetry(
+        (service) => service.moveFile(fileId, newParentId, oldParentId: oldParentId)
+      );
+      await loadFiles();
+    } catch (e) {
+      state = state.copyWith(
+        isLoading: false,
+        errorMessage: _isNetworkError(e)
+            ? 'Cannot move file while offline. Check your network connection.'
+            : 'Failed to move file: $e',
         clearActiveFields: true,
       );
       rethrow;

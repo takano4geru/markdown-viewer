@@ -16,6 +16,7 @@ class LocalCacheService {
         'mimeType': file.mimeType,
         'modifiedTime': file.modifiedTime?.toIso8601String(),
         'size': file.size,
+        'parents': file.parents,
       };
     }).toList();
 
@@ -39,7 +40,10 @@ class LocalCacheService {
           ..modifiedTime = map['modifiedTime'] != null
               ? DateTime.parse(map['modifiedTime'] as String)
               : null
-          ..size = map['size'] as String?;
+          ..size = map['size'] as String?
+          ..parents = map['parents'] != null
+              ? List<String>.from(map['parents'] as List)
+              : null;
       }).toList();
     } catch (e) {
       return [];

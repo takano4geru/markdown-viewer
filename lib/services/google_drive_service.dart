@@ -37,13 +37,13 @@ class GoogleDriveService {
     }
   }
 
-  /// Lists all files stored in the "CloudSync Docs" folder
+  /// Lists all files stored in Google Drive (created or opened by our app, because of drive.file scope)
   Future<List<drive.File>> listFiles() async {
     try {
-      final folderId = await _getOrCreateAppFolder();
+      await _getOrCreateAppFolder();
       final fileList = await _driveApi.files.list(
-        q: "'$folderId' in parents and trashed = false",
-        $fields: 'files(id, name, mimeType, modifiedTime, size)',
+        q: "trashed = false",
+        $fields: 'files(id, name, mimeType, modifiedTime, size, parents)',
       );
       return fileList.files ?? [];
     } catch (e) {
@@ -52,13 +52,18 @@ class GoogleDriveService {
     }
   }
 
-  /// Creates a new text file inside the "CloudSync Docs" folder
-  Future<drive.File> createFile(String name, String content) async {
+  /// Resolves the root "CloudSync Docs" folder ID
+  Future<String> getRootFolderId() async {
+    return await _getOrCreateAppFolder();
+  }
+
+  /// Creates a new text file inside a folder (defaults to root "CloudSync Docs" folder)
+  Future<drive.File> createFile(String name, String content, {String? parentFolderId}) async {
     try {
-      final folderId = await _getOrCreateAppFolder();
+      final actualParentId = parentFolderId ?? await _getOrCreateAppFolder();
       final driveFile = drive.File()
         ..name = name
-        ..parents = [folderId]
+        ..parents = [actualParentId]
         ..mimeType = 'text/plain';
 
       final contentBytes = utf8.encode(content);
@@ -74,6 +79,23 @@ class GoogleDriveService {
       return response;
     } catch (e) {
       debugPrint('Error creating file on Google Drive: $e');
+      rethrow;
+    }
+  }
+
+  /// Creates a new subfolder inside a folder (defaults to root "CloudSync Docs" folder)
+  Future<drive.File> createFolder(String name, {String? parentFolderId}) async {
+    try {
+      final actualParentId = parentFolderId ?? await _getOrCreateAppFolder();
+      final folderMetadata = drive.File()
+        ..name = name
+        ..parents = [actualParentId]
+        ..mimeType = 'application/vnd.google-apps.folder';
+
+      final response = await _driveApi.files.create(folderMetadata);
+      return response;
+    } catch (e) {
+      debugPrint('Error creating folder on Google Drive: $e');
       rethrow;
     }
   }
@@ -118,6 +140,29 @@ class GoogleDriveService {
       throw Exception('Failed to download file: Response is not Media');
     } catch (e) {
       debugPrint('Error reading file from Google Drive: $e');
+      rethrow;
+    }
+  }
+
+  /// Moves a file to a new parent folder
+  Future<drive.File> moveFile(String fileId, String newParentId, {String? oldParentId}) async {
+    try {
+      String? removeParents = oldParentId;
+      if (removeParents == null) {
+        // Fallback: fetch the file first to find its current parents
+        final file = await _driveApi.files.get(fileId, $fields: 'parents') as drive.File;
+        removeParents = file.parents?.join(',');
+      }
+
+      final response = await _driveApi.files.update(
+        drive.File(),
+        fileId,
+        addParents: newParentId,
+        removeParents: removeParents,
+      );
+      return response;
+    } catch (e) {
+      debugPrint('Error moving file on Google Drive: $e');
       rethrow;
     }
   }
