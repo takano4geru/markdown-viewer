@@ -182,8 +182,8 @@ class DriveNotifier extends StateNotifier<DriveState> {
     }
   }
 
-  Future<void> createFile(String title, String content, {String? parentFolderId}) async {
-    if (_driveService == null) return;
+  Future<String?> createFile(String title, String content, {String? parentFolderId}) async {
+    if (_driveService == null) return null;
     state = state.copyWith(isLoading: true, operationType: 'create', errorMessage: null);
 
     try {
@@ -201,6 +201,7 @@ class DriveNotifier extends StateNotifier<DriveState> {
       // Reload list to get metadata and sort (saves to files cache automatically)
       await loadFiles();
       state = state.copyWith(fileContents: newContents);
+      return newFile.id;
     } catch (e) {
       state = state.copyWith(
         isLoading: false,

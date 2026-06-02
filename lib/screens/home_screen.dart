@@ -177,14 +177,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         }
       } else {
         final finalTitle = title.toLowerCase().endsWith('.md') ? title : '$title.md';
-        await driveState.createFile(finalTitle, content, parentFolderId: _selectedFolderId);
-        if (mounted) {
+        final newFileId = await driveState.createFile(finalTitle, content, parentFolderId: _selectedFolderId);
+        if (mounted && newFileId != null) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('File created successfully!')),
           );
+          setState(() {
+            _editingFileId = newFileId;
+            _isCreatingNew = false;
+          });
         }
       }
-      _clearEditor();
     } catch (e) {
       // Error is caught here, success snackbar will not be shown.
       // The error itself is already reported to the user via the DriveState listener.
