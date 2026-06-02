@@ -3,8 +3,10 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:googleapis/drive/v3.dart' as drive;
+import 'package:markdown/markdown.dart' as md;
 import '../providers/auth_provider.dart';
 import '../providers/drive_provider.dart';
+import '../widgets/youtube_syntax.dart';
 
 
 class HomeScreen extends ConsumerStatefulWidget {
@@ -989,6 +991,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               : _contentController.text,
           selectable: true,
           styleSheet: _getMarkdownStyleSheet(context),
+          extensionSet: md.ExtensionSet(
+            md.ExtensionSet.gitHubFlavored.blockSyntaxes,
+            [
+              ...md.ExtensionSet.gitHubFlavored.inlineSyntaxes,
+              YoutubeSyntax(),
+            ],
+          ),
+          builders: {
+            'youtube': YoutubeElementBuilder(),
+          },
         ),
       ),
     );
