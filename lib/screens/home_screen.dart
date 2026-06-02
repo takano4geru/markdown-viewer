@@ -616,6 +616,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       {'icon': Icons.format_quote, 'tooltip': 'Blockquote', 'prefix': '> '},
       {'icon': Icons.code, 'tooltip': 'Code Block', 'prefix': '```\n', 'suffix': '\n```'},
       {'icon': Icons.link, 'tooltip': 'Link', 'prefix': '[', 'suffix': '](url)'},
+      {'icon': Icons.play_circle_outline, 'tooltip': 'YouTube Video', 'prefix': '@[youtube](', 'suffix': ')'},
       {'icon': Icons.format_list_bulleted, 'tooltip': 'Bullet List', 'prefix': '- '},
       {'icon': Icons.format_list_numbered, 'tooltip': 'Numbered List', 'prefix': '1. '},
     ];
