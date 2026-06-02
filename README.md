@@ -42,7 +42,7 @@ Google Drive とリアルタイム同期する、オフライン対応の **Mark
 ## 使い方・セットアップ手順
 
 ### 前提条件
-- **Flutter SDK**: 3.12.0 以上を推奨。 (本環境では `/home/takano/work/flutter` にインストールされています)
+- **Flutter SDK**: 3.12.0 以上を推奨。 (インストール済みの `flutter` コマンドを使用してください)
 - **Google Cloud Console プロジェクト**: Google ログインと Google Drive API を有効化し、OAuth 2.0 クライアント ID を取得する必要があります。
 
 ---
@@ -87,11 +87,12 @@ Google Drive とリアルタイム同期する、オフライン対応の **Mark
 
 1. 依存関係のインストール:
    ```bash
-   /home/takano/work/flutter/bin/flutter pub get
+   flutter pub get
    ```
+   *(※ `flutter` コマンドへのパスが通っていない場合は、パスを通すか、`/path/to/flutter/bin/flutter pub get` のように直接実行してください)*
 2. Web デバッグ実行（ポートを Google Cloud Console で指定した JavaScript 生成元に合わせることをお勧めします。例: `5000` ポート）:
    ```bash
-   /home/takano/work/flutter/bin/flutter run -d chrome --web-port=5000
+   flutter run -d chrome --web-port=5000
    ```
    > [!TIP]
    > ポート番号を指定して起動することで、Google ログイン時の `idpiframe_initialization_failed` 等のドメイン不一致エラーを防ぐことができます。
